@@ -14,6 +14,7 @@ app.secret_key = 'SECRET_KEY'
 client = datastore.Client()
 
 USERS = "users"
+COURSES ="courses"
 
 ERROR_400 = {"Error": "The request body is invalid"}
 ERROR_401 = {"Error": "Unauthorized"}
@@ -325,6 +326,41 @@ def delete_avatar(id):
 
     return "", 204
 
+
+@app.route("/" + COURSES, methods=["POST"])
+def post_course():
+    try:
+        payload = verify_jwt(request)
+    except AuthError:
+        return (ERROR_401, 401)
+
+    access = get_access(payload)
+
+    if not access or access["role"] != "admin":
+        return (ERROR_403, 403)
+
+    content = request.get_json()
+
+    course = validate_course_body(content)
+
+    if not course:
+        return (ERROR_400, 400)
+
+    new_course = datastore.Entity(key=client.key(COURSES))
+    new_course.update({
+        "subject": course["subject"],
+        "number": course["number"],
+        "title": course["title"],
+        "term": course["term"],
+        "instructor_id": course["instructor_id"]
+    })
+    client.put(new_course)
+
+    new_course["id"] = new_course.key.id
+    new_course["self"] = f"{request.host_url}courses/{new_course["id"]}"
+
+    return (new_course, 201)
+
 def get_access(payload):
     query = client.query(kind=USERS)
     results = list(query.fetch())
@@ -336,6 +372,20 @@ def get_access(payload):
             }
             return user
     return None
+
+def validate_course_body(content):
+    body = ["subject", "number", "title", "term", "instructor_id"]
+    for item in body:
+        if item not in content:
+            return None
+
+    instructor_key = client.key(USERS, content["instructor_id"])
+    instructor = client.get(key=instructor_key)
+
+    if instructor["role"] != "instructor":
+        return None
+    
+    return content
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=8080, debug=True)
