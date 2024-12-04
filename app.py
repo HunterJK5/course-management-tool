@@ -11,11 +11,16 @@ app.secret_key = 'SECRET_KEY'
 
 client = datastore.Client()
 
-LODGINGS = "lodgings"
+USERS = "users"
 
-CLIENT_ID = 'YOUR_CLIENT_ID'
-CLIENT_SECRET = 'YOUR_CLIENT_SECRET'
-DOMAIN = 'YOUR_AUTH0_DOMAIN'
+ERROR_400 = {"Error": "The request body is invalid"}
+ERROR_401 = {"Error": "Unauthorized"}
+ERROR_403 = {"Error": "You don't have permission on this resource"}
+ERROR_404 = {"Error": "Not found"}
+
+CLIENT_ID = 'ja3UFmiI5Uj6WvcUjtyCs5r3MGlpFZdT'
+CLIENT_SECRET = 'b8EWnZStU4CX2ZARNY5BunlTR-R3DRFNGN3WMqmRtWHvduEVaRioEzhoosvK-JdQ'
+DOMAIN = 'dev-nne7u8ez3m8dwwfr.us.auth0.com'
 
 ALGORITHMS = ["RS256"]
 
@@ -116,7 +121,7 @@ def verify_jwt(request):
                                 "No RSA key in JWKS"}, 401)
 
 
-@app.rote('/')
+@app.route('/')
 def index():
     return "Please Navigate to /login in order to begin using the Course Manger."
 
@@ -126,9 +131,11 @@ def decode_jwt():
     payload = verify_jwt(request)
     return payload
 
-@app.route('/login', methods=['POST'])
+@app.route('/users/login', methods=['POST'])
 def login_user():
     content = request.get_json()
+    if "username" not in content or "password" not in content:
+        return (ERROR_400, 400)
     username = content["username"]
     password = content["password"]
     body = {'grant_type':'password','username':username,
@@ -139,18 +146,91 @@ def login_user():
     headers = { 'content-type': 'application/json' }
     url = 'https://' + DOMAIN + '/oauth/token'
     r = requests.post(url, json=body, headers=headers)
-    return r.text, 200, {'Content-Type':'application/json'}
+    response = json.loads(r.text)
+    if "id_token" not in response:
+        return(ERROR_401, 401)
+    token = response["id_token"]
+    login_response = {"token": token}
+    return login_response, 200, {'Content-Type':'application/json'}
 
-@app.route("/users", methods=["GET"])
+
+@app.route("/" + USERS, methods=["GET"])
 def get_users():
-    payload = verify_jwt(request)
     #check for valid JWT
     try:
-        error = payload.error
-        code = payload.status_code
-        return (400)
-    content = request.get_json()
-    token = content["token"]
+        payload = verify_jwt(request)
+    except AuthError:
+        return (ERROR_401, 401)
+    
+    user = get_access(payload)
+    
+    if not user or user["role"] != "admin":
+        return (ERROR_403, 403)
+    
+    query = client.query(kind=USERS)
+    results = list(query.fetch())
+    return_obj = []
+
+    for r in results:
+        curr_r = {}
+        curr_r["id"] = r.key.id
+        curr_r["role"] = r["role"]
+        curr_r["sub"] = r["sub"]
+        return_obj.append(curr_r)
+
+    return (return_obj, 200)
+
+
+@app.route("/" + USERS + "/<int:id>", methods=["GET"])
+def get_user(id):
+    try:
+        payload = verify_jwt(request)
+    except AuthError:
+        return (ERROR_401, 401)
+    
+    access = get_access(payload)
+
+    if not access or access["role"] != "admin":
+        if access["id"] != id:
+            return (ERROR_403, 403)
+        
+    user_key = client.key(USERS, id)
+    user = client.get(user_key)
+
+    if not user:
+        return (ERROR_403, 403)
+    
+    response = {
+        "id": user.key.id,
+        "role": user["role"],
+        "sub": user["sub"]
+    }
+
+    #if "avatar_url" in user:
+        #response["avatar_url"] = user["avatar_url"]
+
+    if access["role"] == "student" or access["role"] == "instructor":
+        response["courses"] = []
+
+    return (response, 200)
+    
+
+
+
+
+
+
+def get_access(payload):
+    query = client.query(kind=USERS)
+    results = list(query.fetch())
+    for r in results:
+        if r["sub"] == payload["sub"]:
+            user = {
+                "id": r.key.id,
+                "role": r["role"]
+            }
+            return user
+    return None
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=8080, debug=True)
