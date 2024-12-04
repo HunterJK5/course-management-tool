@@ -215,7 +215,10 @@ def get_user(id):
         response["avatar_url"] = user["avatar_url"]
 
     if access["role"] == "student" or access["role"] == "instructor":
-        response["courses"] = []
+        if "courses" in user:
+            response["courses"] = user["courses"]
+        else:
+            response["courses"] = []
 
     return (response, 200)
     
@@ -403,6 +406,37 @@ def get_course(id):
     return (course, 200)
 
 
+@app.route("/" + COURSES + "/<int:id>", methods=["PUT"])
+def put_course(id):
+    try:
+        payload = verify_jwt(request)
+    except AuthError:
+        return (ERROR_401, 401)
+
+    content = request.get_json()
+
+    course = validate_course(id)
+
+    if not course:
+        return (ERROR_403, 403)
+
+    access = get_access(payload)
+
+    if not access or access["role"] != "admin":
+        return (ERROR_403, 403)
+
+    instructor = validate_course_instructor(content)
+
+    if not instructor:
+        return (ERROR_400, 400)
+
+    course["instructor_id"] = content["instructor_id"]
+    client.put(course)
+    course["id"] = course.key.id
+
+    return (course, 200)
+
+
 def get_access(payload):
     query = client.query(kind=USERS)
     results = list(query.fetch())
@@ -424,10 +458,35 @@ def validate_course_body(content):
     instructor_key = client.key(USERS, content["instructor_id"])
     instructor = client.get(key=instructor_key)
 
+    if instructor is None:
+        return None
+
     if instructor["role"] != "instructor":
         return None
     
     return content
+
+def validate_course_instructor(content):
+    if "instructor_id" not in content:
+        return None
+
+    instructor_key = client.key(USERS, content["instructor_id"])
+    instructor = client.get(key=instructor_key)
+
+    if instructor is None:
+        return None
+
+    if instructor["role"] != "instructor":
+        return None
+
+    return instructor
+
+
+def validate_course(id):
+    course_key = client.key(COURSES, id)
+    course = client.get(key=course_key)
+    return course
+
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=8080, debug=True)
