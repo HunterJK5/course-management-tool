@@ -389,6 +389,18 @@ def get_courses():
     return (response, 200)
     
 
+@app.route("/" + COURSES + "/<int:id>", methods=["GET"])
+def get_course(id):
+    course_key = client.key(COURSES, id)
+    course = client.get(key=course_key)
+
+    if not course:
+        return(ERROR_404, 404)
+
+    course["id"] = course.key.id
+    course["self"] = f"{request.host_url}courses/{course["id"]}"
+
+    return (course, 200)
 
 
 def get_access(payload):
