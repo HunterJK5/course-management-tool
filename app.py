@@ -260,6 +260,36 @@ def post_avatar(id):
     return(response, 200)
 
 
+@app.route("/" + USERS + "/<int:id>/avatar", methods=["GET"])
+def get_avatar(id):
+    try:
+        payload = verify_jwt(request)
+    except AuthError:
+        return (ERROR_401, 401)
+    
+    access = get_access(payload)
+
+    if not access or access["id"] != id:
+        return (ERROR_403, 403)
+    
+    user_key = client.key(USERS, id)
+    user = client.get(key=user_key)
+
+    if not user:
+        return (ERROR_403, 403)
+
+    if "avatar" not in user:
+        return (ERROR_404, 404)
+    
+    file_name = user["avatar"]
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(AVATAR_BUCKET)
+    blob = bucket.blob(file_name)
+    file_obj = io.BytesIO()
+    blob.download_to_file(file_obj)
+    file_obj.seek(0)
+
+    return send_file(file_obj, mimetype='image/x-png', download_name=file_name)
 
 
 
