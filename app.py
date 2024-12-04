@@ -406,8 +406,8 @@ def get_course(id):
     return (course, 200)
 
 
-@app.route("/" + COURSES + "/<int:id>", methods=["PUT"])
-def put_course(id):
+@app.route("/" + COURSES + "/<int:id>", methods=["PATCH"])
+def update_course(id):
     try:
         payload = verify_jwt(request)
     except AuthError:
@@ -435,6 +435,33 @@ def put_course(id):
     course["id"] = course.key.id
 
     return (course, 200)
+
+
+@app.route("/" + COURSES + "/<int:id>", methods=["DEL"])
+def delete_course(id):
+    try:
+        payload = verify_jwt(request)
+    except AuthError:
+        return (ERROR_401, 401)
+    
+    access = get_access(payload)
+
+    course = validate_course(id)
+
+    if not course:
+        return (ERROR_403, 403)
+
+    if not access or access["role"] != "admin":
+        return(ERROR_403, 403)
+
+    course_key = client.key(COURSES, id)
+
+    client.delete(course_key)
+
+    del_course_users(id)
+
+    return ("", 204)
+
 
 
 def get_access(payload):
@@ -486,6 +513,19 @@ def validate_course(id):
     course_key = client.key(COURSES, id)
     course = client.get(key=course_key)
     return course
+
+
+def del_course_users(id):
+    query = client.query(kind=USERS)
+    users = list(query.fetch())
+
+    for user in users:
+        if "courses" in user:
+            if id in user["courses"]:
+                user_courses = user["courses"]
+                user_courses.remove(id)
+                user["courses"] = user_courses
+                client.put(user)
 
 
 if __name__ == '__main__':
