@@ -1,7 +1,9 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from google.cloud import datastore
+from google.cloud import storage
 import requests
 import json
+import io
 from six.moves.urllib.request import urlopen
 from jose import jwt
 from authlib.integrations.flask_client import OAuth
@@ -21,6 +23,8 @@ ERROR_404 = {"Error": "Not found"}
 CLIENT_ID = 'ja3UFmiI5Uj6WvcUjtyCs5r3MGlpFZdT'
 CLIENT_SECRET = 'b8EWnZStU4CX2ZARNY5BunlTR-R3DRFNGN3WMqmRtWHvduEVaRioEzhoosvK-JdQ'
 DOMAIN = 'dev-nne7u8ez3m8dwwfr.us.auth0.com'
+
+AVATAR_BUCKET = 'kottwith-assignment6'
 
 ALGORITHMS = ["RS256"]
 
@@ -195,7 +199,7 @@ def get_user(id):
             return (ERROR_403, 403)
         
     user_key = client.key(USERS, id)
-    user = client.get(user_key)
+    user = client.get(key=user_key)
 
     if not user:
         return (ERROR_403, 403)
@@ -206,8 +210,8 @@ def get_user(id):
         "sub": user["sub"]
     }
 
-    #if "avatar_url" in user:
-        #response["avatar_url"] = user["avatar_url"]
+    if "avatar_url" in user:
+        response["avatar_url"] = user["avatar_url"]
 
     if access["role"] == "student" or access["role"] == "instructor":
         response["courses"] = []
@@ -215,6 +219,45 @@ def get_user(id):
     return (response, 200)
     
 
+@app.route("/" + USERS + "/<int:id>/avatar", methods=["POST"])
+def post_avatar(id):
+    if "file" not in request.files:
+        return(ERROR_400, 400)
+    try:
+        payload = verify_jwt(request)
+    except AuthError:
+        return (ERROR_401, 401)
+    
+    access = get_access(payload)
+
+    if not access or access["id"] != id:
+        return (ERROR_403, 403)
+    
+    user_key = client.key(USERS, id)
+    user = client.get(key=user_key)
+
+    if not user:
+        return (ERROR_403, 403)
+    
+    file_obj = request.files["file"]
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(AVATAR_BUCKET)
+    blob = bucket.blob(file_obj.filename)
+    file_obj.seek(0)
+    blob.upload_from_file(file_obj)
+    
+    user.update({
+        "avatar": file_obj.filename,
+        "avatar_url": f"{request.host_url}users/{id}/avatar"
+    })
+
+    client.put(user)
+
+    response = {
+        "avatar_url": f"{request.host_url}users/{id}/avatar"
+        }
+
+    return(response, 200)
 
 
 
