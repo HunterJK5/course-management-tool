@@ -361,6 +361,36 @@ def post_course():
 
     return (new_course, 201)
 
+
+@app.route("/" + COURSES, methods=["GET"])
+def get_courses():
+    offset = request.args.get("offset")
+    if not offset:
+        offset = "0"
+    offset = int(offset)
+    limit = request.args.get("limit")
+    if not limit:
+        limit = "3"
+    limit = int(limit)
+
+    query = client.query(kind=COURSES)
+    query.order = ["subject"]
+    courses = list(query.fetch(offset=offset, limit=limit))
+
+    for course in courses:
+        course["id"] = course.key.id
+        course["self"] = f"{request.host_url}courses/{course["id"]}"
+
+    response = {
+        "courses": courses,
+        "next": f"{request.host_url}courses?limit={limit}&offset={offset + limit}"
+    }
+
+    return (response, 200)
+    
+
+
+
 def get_access(payload):
     query = client.query(kind=USERS)
     results = list(query.fetch())
