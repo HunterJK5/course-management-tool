@@ -521,6 +521,35 @@ def update_enrollment(id):
     return 200
         
 
+@app.route("/" + COURSES + "<int:id>/students", methods=["GET"])
+def get_enrollment(id):
+    try:
+        payload = verify_jwt(request)
+    except AuthError:
+        return (ERROR_401, 401)
+    
+    access = get_access(payload)
+    course = validate_course(id)
+
+    if not course:
+        return (ERROR_403, 403)
+
+    if not access or access["role"] != "admin":
+        if access["id"] != course["instructor_id"]:
+            return (ERROR_403, 403)
+        
+    query = client.query(kind=USERS)
+    query.add_filter(filter=datastore.query.PropertyFilter("role", "=", "student"))
+    students = list(query.fetch())
+
+    response_enrollment = []
+
+    for student in students:
+        if "courses" in student:
+            if id in student["courses"]:
+                response_enrollment.append(student.key.id)
+    
+    return (response_enrollment, 200)
 
 
 def get_access(payload):
