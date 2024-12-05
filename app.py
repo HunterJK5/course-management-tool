@@ -20,6 +20,7 @@ ERROR_400 = {"Error": "The request body is invalid"}
 ERROR_401 = {"Error": "Unauthorized"}
 ERROR_403 = {"Error": "You don't have permission on this resource"}
 ERROR_404 = {"Error": "Not found"}
+ERROR_409 = {"Error": "Enrollment data is invalid"}
 
 CLIENT_ID = 'ja3UFmiI5Uj6WvcUjtyCs5r3MGlpFZdT'
 CLIENT_SECRET = 'b8EWnZStU4CX2ZARNY5BunlTR-R3DRFNGN3WMqmRtWHvduEVaRioEzhoosvK-JdQ'
@@ -362,6 +363,8 @@ def post_course():
     new_course["id"] = new_course.key.id
     new_course["self"] = f"{request.host_url}courses/{new_course["id"]}"
 
+    add_instructor_course(new_course["instructor_id"], new_course["id"])
+
     return (new_course, 201)
 
 
@@ -429,10 +432,15 @@ def update_course(id):
 
     if not instructor:
         return (ERROR_400, 400)
+    
+    past_instructor = course["instructor_id"]
+    new_instructor = content["instructor_id"]
 
     course["instructor_id"] = content["instructor_id"]
     client.put(course)
     course["id"] = course.key.id
+
+    update_instructor_course(past_instructor, new_instructor, course["id"])
 
     return (course, 200)
 
@@ -461,6 +469,57 @@ def delete_course(id):
     del_course_users(id)
 
     return ("", 204)
+
+
+@app.route("/" + COURSES + "/<int:id>/students", methods=["PATCH"])
+def update_enrollment(id):
+    try:
+        payload = verify_jwt(request)
+    except AuthError:
+        return (ERROR_401, 401)
+    
+    access = get_access(payload)
+    course = validate_course(id)
+
+    if not course:
+        return (ERROR_403, 403)
+
+    if not access or access["role"] != "admin":
+        if access["id"] != course["instructor_id"]:
+            return (ERROR_403, 403)
+        
+    content = request.get_json()
+        
+    if not validate_enrollment(content):
+        return (ERROR_409, 409)
+    
+    for student in content["add"]:
+        curr_student = fetch_student(student)
+
+        if "courses" not in curr_student:
+            courses = []
+        else:
+            courses = curr_student["courses"]
+
+        if id not in courses:
+            courses.append(id)
+
+        curr_student["courses"] = courses
+        client.put(curr_student)
+
+    for student in content["remove"]:
+        curr_student = fetch_student(student)
+
+        if "courses" in curr_student:
+            courses = curr_student["courses"]
+            
+            if id in courses:
+                courses.remove(id)
+                curr_student["courses"] = courses
+                client.put(curr_student)
+
+    return 200
+        
 
 
 
@@ -526,6 +585,68 @@ def del_course_users(id):
                 user_courses.remove(id)
                 user["courses"] = user_courses
                 client.put(user)
+
+
+def update_instructor_course(old_id, new_id, course_id):
+    old_instructor_key = client.key(USERS, old_id)
+    old_instructor = client.get(key=old_instructor_key)
+    old_courses = old_instructor["courses"]
+    old_courses.remove(course_id)
+    old_instructor["courses"] = old_courses
+    client.put(old_instructor)
+
+    new_instructor_key = client.key(USERS, new_id)
+    new_instructor = client.get(key=new_instructor_key)
+    
+    if "courses" not in new_instructor:
+        new_courses = []
+    else:
+        new_courses = new_instructor["courses"]
+
+    new_courses.append(course_id)
+    new_instructor["courses"] = new_courses
+    client.put(new_instructor)
+
+
+def add_instructor_course(instructor_id, course_id):
+    instructor_key = client.key(USERS, instructor_id)
+    instructor = client.get(key=instructor_key)
+
+    if "courses" not in instructor:
+        courses = []
+    else:
+        courses = instructor["courses"]
+
+    courses.append(course_id)
+    instructor["courses"] = courses
+    client.put(instructor)
+
+
+def validate_enrollment(enrollment):
+    add_to = enrollment["add"]
+    remove_from = enrollment["remove"]
+
+    query = client.query(kind=USERS)
+    query.add_filter(filter=datastore.query.PropertyFilter("role", "=", "student"))
+    students = list(query.fetch())
+
+    for student in add_to:
+        if student not in students:
+            return False
+        if student in remove_from:
+            return False
+
+    for student in remove_from:
+        if student not in students:
+            return False
+
+    return True 
+
+
+def fetch_student(id):
+    student_key = client.key(USERS, id)
+    student = client.get(key=student_key)
+    return student
 
 
 if __name__ == '__main__':
