@@ -212,8 +212,8 @@ def get_user(id):
         "sub": user["sub"]
     }
 
-    if "avatar_url" in user:
-        response["avatar_url"] = user["avatar_url"]
+    if "avatar" in user:
+        response["avatar_url"] = f"{request.host_url}users/{id}/avatar"
 
     if access["role"] == "student" or access["role"] == "instructor":
         if "courses" in user:
@@ -252,8 +252,7 @@ def post_avatar(id):
     blob.upload_from_file(file_obj)
     
     user.update({
-        "avatar": file_obj.filename,
-        "avatar_url": f"{request.host_url}users/{id}/avatar"
+        "avatar": file_obj.filename
     })
 
     client.put(user)
@@ -325,7 +324,6 @@ def delete_avatar(id):
     blob.delete()
 
     del user["avatar"]
-    del user["avatar_url"]
     client.put(user)
 
     return "", 204
