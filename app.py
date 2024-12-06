@@ -445,7 +445,7 @@ def update_course(id):
     return (course, 200)
 
 
-@app.route("/" + COURSES + "/<int:id>", methods=["DEL"])
+@app.route("/" + COURSES + "/<int:id>", methods=["DELETE"])
 def delete_course(id):
     try:
         payload = verify_jwt(request)
@@ -518,10 +518,10 @@ def update_enrollment(id):
                 curr_student["courses"] = courses
                 client.put(curr_student)
 
-    return 200
+    return ("", 200)
         
 
-@app.route("/" + COURSES + "<int:id>/students", methods=["GET"])
+@app.route("/" + COURSES + "/<int:id>/students", methods=["GET"])
 def get_enrollment(id):
     try:
         payload = verify_jwt(request)
@@ -658,15 +658,19 @@ def validate_enrollment(enrollment):
     query = client.query(kind=USERS)
     query.add_filter(filter=datastore.query.PropertyFilter("role", "=", "student"))
     students = list(query.fetch())
+    student_ids = []
+    
+    for student in students:
+        student_ids.append(student.key.id)
 
     for student in add_to:
-        if student not in students:
+        if student not in student_ids:
             return False
         if student in remove_from:
             return False
 
     for student in remove_from:
-        if student not in students:
+        if student not in student_ids:
             return False
 
     return True 
